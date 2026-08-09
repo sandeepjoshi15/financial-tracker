@@ -17,29 +17,72 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+import hashlib
+
+# --- SECURITY PROTOCOL ---
+def hash_password(password):
+    """Returns a SHA-256 hash of the password."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# --- DATABASE CONNECTION ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 # --- AUTHENTICATION WALL ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user = ""
 
 if not st.session_state.logged_in:
-    st.title("🔒 Login to Your Dashboard")
-    with st.form("login_form"):
-        username = st.text_input("Username").strip().lower()
-        password = st.text_input("PIN", type="password")
-        submit = st.form_submit_button("Login")
+    st.title("🔒 Access Your Dashboard")
+    
+    # Load user database
+    try:
+        df_users = conn.read(worksheet="Users", usecols=[0, 1])
+        df_users = df_users.dropna(how="all")
+    except Exception as e:
+        st.error("Error connecting to Users database. Please ensure the 'Users' tab exists in your Google Sheet.")
+        st.stop()
         
-        if submit:
-            # Basic Authentication (You can add multiple users to this dictionary)
-            valid_users = {"sandeep": "1234", "friend": "5678"}
+    tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+    
+    with tab_login:
+        with st.form("login_form"):
+            log_user = st.text_input("Username").strip().lower()
+            log_pin = st.text_input("PIN", type="password")
+            if st.form_submit_button("Login", use_container_width=True):
+                if log_user in df_users['Username'].values:
+                    stored_hash = df_users.loc[df_users['Username'] == log_user, 'Password'].values[0]
+                    if stored_hash == hash_password(log_pin):
+                        st.session_state.logged_in = True
+                        st.session_state.user = log_user
+                        st.rerun()
+                    else:
+                        st.error("Incorrect PIN.")
+                else:
+                    st.error("User not found.")
+                    
+    with tab_signup:
+        with st.form("signup_form"):
+            st.caption("Create a new account. Your PIN will be securely hashed.")
+            new_user = st.text_input("Choose a Username").strip().lower()
+            new_pin = st.text_input("Choose a PIN", type="password")
+            confirm_pin = st.text_input("Confirm PIN", type="password")
             
-            if username in valid_users and valid_users[username] == password:
-                st.session_state.logged_in = True
-                st.session_state.user = username
-                st.rerun()
-            else:
-                st.error("Invalid Username or PIN.")
-    st.stop() # Halts execution so unauthenticated users cannot see the app
+            if st.form_submit_button("Create Account", use_container_width=True):
+                if new_user == "" or new_pin == "":
+                    st.error("Fields cannot be empty.")
+                elif new_pin != confirm_pin:
+                    st.error("PINs do not match.")
+                elif new_user in df_users['Username'].values:
+                    st.error("Username already exists. Choose another.")
+                else:
+                    # Save the hashed password to the Google Sheet
+                    new_user_row = pd.DataFrame([{"Username": new_user, "Password": hash_password(new_pin)}])
+                    updated_users = pd.concat([df_users, new_user_row], ignore_index=True)
+                    conn.update(worksheet="Users", data=updated_users)
+                    st.cache_data.clear() # Reset cache so the new user can log in immediately
+                    st.success("✅ Account created! You can now log in.")
+    st.stop() # Halts execution so unauthenticated users cannot see the main app
 
 # --- DATABASE CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
