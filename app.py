@@ -1,44 +1,12 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 import hashlib
 import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="FIRE Tracker | 15-70-15", page_icon="⚡", layout="wide")
-
-# --- CUSTOM CSS (Fintech Aesthetic) ---
-st.markdown("""
-<style>
-    
-    /* Custom Metric Cards */
-    .kpi-container {
-        display: flex; gap: 15px; margin-bottom: 25px; flex-wrap: wrap;
-    }
-    .kpi-card {
-        background: linear-gradient(145deg, #1A1C23 0%, #121418 100%);
-        border: 1px solid #2A2D35;
-        border-radius: 12px;
-        padding: 20px;
-        flex: 1;
-        min-width: 200px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        transition: transform 0.2s ease;
-    }
-    .kpi-card:hover { transform: translateY(-3px); border-color: #4CAF50; }
-    .kpi-title { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;}
-    .kpi-value { font-size: 28px; font-weight: 700; color: #FFF; margin-bottom: 5px;}
-    .kpi-sub { font-size: 13px; font-weight: 600; }
-    .text-green { color: #00E676; }
-    .text-red { color: #FF3D00; }
-    .text-blue { color: #00B0FF; }
-    
-    /* Headers & Dividers */
-    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 700 !important; }
-    hr { border-color: #2A2D35; }
-</style>
-""", unsafe_allow_html=True)
 
 # --- SECURITY & PERSISTENCE PROTOCOL ---
 def hash_password(password):
@@ -63,8 +31,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- AUTHENTICATION WALL ---
 if not st.session_state.logged_in:
-    st.markdown("<br><br><h1 style='text-align: center; color: #FFF;'>⚡ FIRE Dashboard</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888;'>Secure access to your institutional-grade financial tracker.</p><br>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align: center;'>⚡ FIRE Dashboard</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Secure access to your institutional-grade financial tracker.</p><br>", unsafe_allow_html=True)
     
     try:
         df_users = conn.read(worksheet="Users", usecols=[0, 1])
@@ -138,12 +106,15 @@ def load_data():
 df_master = load_data()
 df_user = df_master[df_master['User'] == st.session_state.user]
 
+# Ensure 'Month' is parsed correctly as a date/period proxy for filtering
+df_user['ParsedDate'] = pd.to_datetime(df_user['Month'], errors='coerce')
+
 # --- MAIN APP HEADER ---
 col_head1, col_head2 = st.columns([5, 1])
 col_head1.markdown(f"<h2>⚡ Welcome, {st.session_state.user.capitalize()}</h2>", unsafe_allow_html=True)
 with col_head2:
-    st.write("") # Padding
-    if st.button("🚪 Secure Logout", use_container_width=True):
+    st.write("") 
+    if st.button("🚪 Logout", use_container_width=True):
         st.query_params.clear()
         st.session_state.logged_in = False
         st.session_state.user = ""
@@ -151,28 +122,71 @@ with col_head2:
 
 st.markdown("---")
 
-# --- NAVIGATION: MONTH SELECTOR ---
-if 'active_month' not in st.session_state:
-    st.session_state.active_month = datetime.today().strftime("%Y-%m")
+# --- ADVANCED TIME HORIZON SELECTOR ---
+col_mode1, col_mode2 = st.columns([2, 2])
+with col_mode1:
+    view_mode = st.radio("Analytics Horizon", ["Monthly View", "Preset / Macro View", "Custom Date Range"], horizontal=True)
 
-fy_months = pd.date_range(start="2026-04-01", end="2027-03-31", freq='MS')
-options = []
-for m in fy_months:
-    m_key = m.strftime("%Y-%m")
-    m_label = m.strftime("%b '%y").upper()
-    has_data = not df_user[df_user['Month'] == m_key].empty
-    options.append((m_key, f"● {m_label}" if has_data else m_label))
+if view_mode == "Monthly View":
+    if 'active_month' not in st.session_state:
+        st.session_state.active_month = datetime.today().strftime("%Y-%m")
 
-# Streamlit native horizontal selection
-selected_option = st.radio(
-    "Select Reporting Period",
-    options=[opt[1] for opt in options],
-    index=[opt[0] for opt in options].index(st.session_state.active_month) if st.session_state.active_month in [opt[0] for opt in options] else 0,
-    horizontal=True,
-    label_visibility="collapsed"
-)
-st.session_state.active_month = [opt[0] for opt in options if opt[1] == selected_option][0]
-m_df = df_user[df_user['Month'] == st.session_state.active_month]
+    fy_months = pd.date_range(start="2026-04-01", end="2027-03-31", freq='MS')
+    options = []
+    for m in fy_months:
+        m_key = m.strftime("%Y-%m")
+        m_label = m.strftime("%b '%y").upper()
+        has_data = not df_user[df_user['Month'] == m_key].empty
+        options.append((m_key, f"● {m_label}" if has_data else m_label))
+
+    selected_option = st.radio(
+        "Select Reporting Period",
+        options=[opt[1] for opt in options],
+        index=[opt[0] for opt in options].index(st.session_state.active_month) if st.session_state.active_month in [opt[0] for opt in options] else 0,
+        horizontal=True
+    )
+    st.session_state.active_month = [opt[0] for opt in options if opt[1] == selected_option][0]
+    
+    # Filter by specific Month string
+    m_df = df_user[df_user['Month'] == st.session_state.active_month]
+    period_title = datetime.strptime(st.session_state.active_month, "%Y-%m").strftime("%B %Y")
+
+elif view_mode == "Preset / Macro View":
+    macro_choice = st.selectbox("Select Macro Horizon", [
+        "Current Financial Year (2026-2027)", 
+        "Previous Financial Year (2025-2026)", 
+        "Last Quarter", 
+        "Last Month"
+    ])
+    
+    today = date.today()
+    if macro_choice == "Current Financial Year (2026-2027)":
+        start_date = pd.to_datetime("2026-04-01")
+        end_date = pd.to_datetime("2027-03-31")
+    elif macro_choice == "Previous Financial Year (2025-2026)":
+        start_date = pd.to_datetime("2025-04-01")
+        end_date = pd.to_datetime("2026-03-31")
+    elif macro_choice == "Last Quarter":
+        # Rough rolling 3-month window
+        end_date = pd.to_datetime(today)
+        start_date = end_date - pd.DateOffset(months=3)
+    else: # Last Month
+        end_date = pd.to_datetime(today)
+        start_date = end_date - pd.DateOffset(months=1)
+        
+    m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
+    period_title = macro_choice
+
+else: # Custom Date Range
+    c_start, c_end = st.columns(2)
+    custom_start = c_start.date_input("Start Date", value=date(2026, 4, 1))
+    custom_end = c_end.date_input("End Date", value=date.today())
+    
+    start_date = pd.to_datetime(custom_start)
+    end_date = pd.to_datetime(custom_end)
+    
+    m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
+    period_title = f"{custom_start.strftime('%d %b %Y')} to {custom_end.strftime('%d %b %Y')}"
 
 # --- CALCULATION ENGINE ---
 income = m_df[m_df['Category'] == 'Income']['Amount'].sum()
@@ -184,54 +198,23 @@ target_survival = income * 0.15
 target_wealth = income * 0.70
 target_lifestyle = income * 0.15
 
-# --- KPI CARDS (Custom HTML) ---
-st.markdown("<br>", unsafe_allow_html=True)
+# --- KPI METRIC CARDS ---
+st.markdown(f"### 📈 Performance Summary: {period_title}")
 if income == 0:
-    st.warning("⚠️ No 'Income' logged for this period. Targets cannot be calculated.")
+    st.warning("⚠️ No 'Income' logged for this horizon. Targets cannot be calculated.")
 
 c1, c2, c3, c4 = st.columns(4)
 
-# Income Card
-c1.markdown(f"""
-<div class="kpi-card" style="border-top: 3px solid #00B0FF;">
-    <div class="kpi-title">Total Cash Inflow</div>
-    <div class="kpi-value">₹{income:,.0f}</div>
-    <div class="kpi-sub text-blue">Deployed: ₹{survival+wealth+lifestyle:,.0f}</div>
-</div>
-""", unsafe_allow_html=True)
+c1.metric("Total Inflow", f"₹{income:,.0f}", f"Deployed: ₹{survival+wealth+lifestyle:,.0f}")
 
-# Survival Card
 s_diff = target_survival - survival
-s_color = "text-green" if s_diff >= 0 else "text-red"
-c2.markdown(f"""
-<div class="kpi-card" style="border-top: 3px solid {'#00E676' if s_diff >= 0 else '#FF3D00'};">
-    <div class="kpi-title">Survival (15% Cap)</div>
-    <div class="kpi-value">₹{survival:,.0f}</div>
-    <div class="kpi-sub {s_color}">Target: ₹{target_survival:,.0f} ({'+' if s_diff >= 0 else ''}₹{s_diff:,.0f})</div>
-</div>
-""", unsafe_allow_html=True)
+c2.metric("Survival (15% Cap)", f"₹{survival:,.0f}", f"{'+' if s_diff >= 0 else ''}₹{s_diff:,.0f} vs Target", delta_color="normal" if s_diff >= 0 else "inverse")
 
-# Wealth Card
 w_diff = wealth - target_wealth
-w_color = "text-green" if w_diff >= 0 else "text-red"
-c3.markdown(f"""
-<div class="kpi-card" style="border-top: 3px solid {'#00E676' if w_diff >= 0 else '#FF3D00'};">
-    <div class="kpi-title">Wealth (70% Floor)</div>
-    <div class="kpi-value">₹{wealth:,.0f}</div>
-    <div class="kpi-sub {w_color}">Target: ₹{target_wealth:,.0f} ({'+' if w_diff >= 0 else ''}₹{w_diff:,.0f})</div>
-</div>
-""", unsafe_allow_html=True)
+c3.metric("Wealth (70% Floor)", f"₹{wealth:,.0f}", f"{'+' if w_diff >= 0 else ''}₹{w_diff:,.0f} vs Target", delta_color="normal" if w_diff >= 0 else "inverse")
 
-# Lifestyle Card
 l_diff = target_lifestyle - lifestyle
-l_color = "text-green" if l_diff >= 0 else "text-red"
-c4.markdown(f"""
-<div class="kpi-card" style="border-top: 3px solid {'#00E676' if l_diff >= 0 else '#FF3D00'};">
-    <div class="kpi-title">Lifestyle (15% Cap)</div>
-    <div class="kpi-value">₹{lifestyle:,.0f}</div>
-    <div class="kpi-sub {l_color}">Target: ₹{target_lifestyle:,.0f} ({'+' if l_diff >= 0 else ''}₹{l_diff:,.0f})</div>
-</div>
-""", unsafe_allow_html=True)
+c4.metric("Lifestyle (15% Cap)", f"₹{lifestyle:,.0f}", f"{'+' if l_diff >= 0 else ''}₹{l_diff:,.0f} vs Target", delta_color="normal" if l_diff >= 0 else "inverse")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -240,9 +223,8 @@ col_charts, col_input = st.columns([2.5, 1.5])
 
 with col_charts:
     with st.container(border=True):
-        st.markdown("#### 📊 Capital Allocation")
+        st.markdown("#### 📊 Capital Allocation Breakdown")
         if income > 0 and (survival > 0 or wealth > 0 or lifestyle > 0):
-            # Plotly Sunburst / Donut
             labels = ['Survival & Debt', 'Wealth Engine', 'Lifestyle']
             values = [survival, wealth, lifestyle]
             colors = ['#FF4B4B', '#00E676', '#00B0FF']
@@ -264,6 +246,9 @@ with col_input:
     with st.container(border=True):
         st.markdown("#### 📝 Log Transaction")
         with st.form("entry_form"):
+            default_month = st.session_state.active_month if view_mode == "Monthly View" else datetime.today().strftime("%Y-%m")
+            
+            log_month = st.text_input("Target Month (YYYY-MM)", value=default_month)
             cat = st.selectbox("Category", ["Income", "Survival & Debt", "Wealth Engine", "Lifestyle"])
             sub_cat = st.text_input("Sub-Category / Description", placeholder="e.g., Salary, Rent, Groww SIP")
             amt = st.number_input("Amount (₹)", min_value=0.0, step=500.0)
@@ -272,7 +257,7 @@ with col_input:
                 if sub_cat and amt > 0:
                     new_data = pd.DataFrame([{
                         "User": st.session_state.user,
-                        "Month": st.session_state.active_month,
+                        "Month": log_month,
                         "Category": cat,
                         "SubCategory": sub_cat,
                         "Amount": amt
@@ -285,10 +270,9 @@ with col_input:
                     st.error("Description and Amount required.")
 
 # --- DATAFRAME LEDGER ---
-st.markdown("#### 📓 Categorized Ledger")
+st.markdown(f"#### 📓 Aggregated Ledger ({period_title})")
 if not m_df.empty:
     breakdown = m_df.groupby(['Category', 'SubCategory'])['Amount'].sum().reset_index()
-    # Format for display
     st.dataframe(
         breakdown, 
         use_container_width=True, 
@@ -300,4 +284,4 @@ if not m_df.empty:
         }
     )
 else:
-    st.info("No ledger entries for this period.")
+    st.info("No ledger entries found for this horizon.")
