@@ -105,8 +105,6 @@ def load_data():
 
 df_master = load_data()
 df_user = df_master[df_master['User'] == st.session_state.user]
-
-# Ensure 'Month' is parsed correctly as a date/period proxy for filtering
 df_user['ParsedDate'] = pd.to_datetime(df_user['Month'], errors='coerce')
 
 # --- MAIN APP HEADER ---
@@ -114,7 +112,7 @@ col_head1, col_head2 = st.columns([5, 1])
 col_head1.markdown(f"<h2>⚡ Welcome, {st.session_state.user.capitalize()}</h2>", unsafe_allow_html=True)
 with col_head2:
     st.write("") 
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("🚪 Secure Logout", use_container_width=True):
         st.query_params.clear()
         st.session_state.logged_in = False
         st.session_state.user = ""
@@ -122,10 +120,9 @@ with col_head2:
 
 st.markdown("---")
 
-# --- ADVANCED TIME HORIZON SELECTOR ---
-col_mode1, col_mode2 = st.columns([2, 2])
-with col_mode1:
-    view_mode = st.radio("Analytics Horizon", ["Monthly View", "Preset / Macro View", "Custom Date Range"], horizontal=True)
+# --- NAVIGATION & FILTER HORIZON ---
+st.markdown("### Select Reporting Period")
+view_mode = st.radio("Analytics Horizon", ["Monthly View", "Current Financial Year (2026-2027)", "Previous Financial Year (2025-2026)", "Last Quarter", "Last Month", "Custom"], horizontal=True)
 
 if view_mode == "Monthly View":
     if 'active_month' not in st.session_state:
@@ -140,53 +137,50 @@ if view_mode == "Monthly View":
         options.append((m_key, f"● {m_label}" if has_data else m_label))
 
     selected_option = st.radio(
-        "Select Reporting Period",
+        "Select Month",
         options=[opt[1] for opt in options],
         index=[opt[0] for opt in options].index(st.session_state.active_month) if st.session_state.active_month in [opt[0] for opt in options] else 0,
-        horizontal=True
+        horizontal=True,
+        label_visibility="collapsed"
     )
     st.session_state.active_month = [opt[0] for opt in options if opt[1] == selected_option][0]
-    
-    # Filter by specific Month string
     m_df = df_user[df_user['Month'] == st.session_state.active_month]
     period_title = datetime.strptime(st.session_state.active_month, "%Y-%m").strftime("%B %Y")
 
-elif view_mode == "Preset / Macro View":
-    macro_choice = st.selectbox("Select Macro Horizon", [
-        "Current Financial Year (2026-2027)", 
-        "Previous Financial Year (2025-2026)", 
-        "Last Quarter", 
-        "Last Month"
-    ])
-    
-    today = date.today()
-    if macro_choice == "Current Financial Year (2026-2027)":
-        start_date = pd.to_datetime("2026-04-01")
-        end_date = pd.to_datetime("2027-03-31")
-    elif macro_choice == "Previous Financial Year (2025-2026)":
-        start_date = pd.to_datetime("2025-04-01")
-        end_date = pd.to_datetime("2026-03-31")
-    elif macro_choice == "Last Quarter":
-        # Rough rolling 3-month window
-        end_date = pd.to_datetime(today)
-        start_date = end_date - pd.DateOffset(months=3)
-    else: # Last Month
-        end_date = pd.to_datetime(today)
-        start_date = end_date - pd.DateOffset(months=1)
-        
+elif view_mode == "Current Financial Year (2026-2027)":
+    start_date = pd.to_datetime("2026-04-01")
+    end_date = pd.to_datetime("2027-03-31")
     m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
-    period_title = macro_choice
+    period_title = "Current Financial Year (2026-2027)"
 
-else: # Custom Date Range
+elif view_mode == "Previous Financial Year (2025-2026)":
+    start_date = pd.to_datetime("2025-04-01")
+    end_date = pd.to_datetime("2026-03-31")
+    m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
+    period_title = "Previous Financial Year (2025-2026)"
+
+elif view_mode == "Last Quarter":
+    end_date = pd.to_datetime(date.today())
+    start_date = end_date - pd.DateOffset(months=3)
+    m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
+    period_title = "Last Quarter"
+
+elif view_mode == "Last Month":
+    end_date = pd.to_datetime(date.today())
+    start_date = end_date - pd.DateOffset(months=1)
+    m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
+    period_title = "Last Month"
+
+else: # Custom
     c_start, c_end = st.columns(2)
     custom_start = c_start.date_input("Start Date", value=date(2026, 4, 1))
     custom_end = c_end.date_input("End Date", value=date.today())
-    
     start_date = pd.to_datetime(custom_start)
     end_date = pd.to_datetime(custom_end)
-    
     m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
     period_title = f"{custom_start.strftime('%d %b %Y')} to {custom_end.strftime('%d %b %Y')}"
+
+st.markdown("---")
 
 # --- CALCULATION ENGINE ---
 income = m_df[m_df['Category'] == 'Income']['Amount'].sum()
@@ -198,14 +192,14 @@ target_survival = income * 0.15
 target_wealth = income * 0.70
 target_lifestyle = income * 0.15
 
-# --- KPI METRIC CARDS ---
-st.markdown(f"### 📈 Performance Summary: {period_title}")
+# --- KPI CARDS ---
+st.markdown(f"### Performance Summary: {period_title}")
 if income == 0:
-    st.warning("⚠️ No 'Income' logged for this horizon. Targets cannot be calculated.")
+    st.warning("⚠️ No 'Income' logged for this period. Targets cannot be calculated.")
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.metric("Total Inflow", f"₹{income:,.0f}", f"Deployed: ₹{survival+wealth+lifestyle:,.0f}")
+c1.metric("Total Cash Inflow", f"₹{income:,.0f}", f"Deployed: ₹{survival+wealth+lifestyle:,.0f}")
 
 s_diff = target_survival - survival
 c2.metric("Survival (15% Cap)", f"₹{survival:,.0f}", f"{'+' if s_diff >= 0 else ''}₹{s_diff:,.0f} vs Target", delta_color="normal" if s_diff >= 0 else "inverse")
@@ -223,7 +217,7 @@ col_charts, col_input = st.columns([2.5, 1.5])
 
 with col_charts:
     with st.container(border=True):
-        st.markdown("#### 📊 Capital Allocation Breakdown")
+        st.markdown("#### 📊 Capital Allocation")
         if income > 0 and (survival > 0 or wealth > 0 or lifestyle > 0):
             labels = ['Survival & Debt', 'Wealth Engine', 'Lifestyle']
             values = [survival, wealth, lifestyle]
@@ -270,7 +264,7 @@ with col_input:
                     st.error("Description and Amount required.")
 
 # --- DATAFRAME LEDGER ---
-st.markdown(f"#### 📓 Aggregated Ledger ({period_title})")
+st.markdown("#### 📓 Categorized Ledger")
 if not m_df.empty:
     breakdown = m_df.groupby(['Category', 'SubCategory'])['Amount'].sum().reset_index()
     st.dataframe(
@@ -284,4 +278,4 @@ if not m_df.empty:
         }
     )
 else:
-    st.info("No ledger entries found for this horizon.")
+    st.info("No ledger entries for this period.")
