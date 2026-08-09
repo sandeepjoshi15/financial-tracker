@@ -1,222 +1,206 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import io
-from github import Github
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
+import calendar
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="FIRE Dashboard | 15-70-15",
-    page_icon="🔥",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="FIRE Dashboard", page_icon="🔥", layout="centered", initial_sidebar_state="expanded")
 
-# --- SESSION STATE (Local Database Simulation) ---
-# --- DATABASE SETUP (GitHub CSV Integration) ---
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO_NAME = "sandeepjoshi15/financial-tracker"
-FILE_PATH = "data.csv"
+# --- CUSTOM CSS (Groww Dark Theme Replica) ---
+st.markdown("""
+<style>
+    .main {background-color: #0b0c10;}
+    .metric-card {
+        background-color: #18191d;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #2d2e32;
+        margin-bottom: 20px;
+    }
+    .net-pl {font-size: 28px; font-weight: 700; color: #4caf50; margin-bottom: 5px;}
+    .sub-metric {display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #2d2e32;}
+    .sub-metric:last-child {border-bottom: none;}
+    .sub-text {color: #a0a0a0; font-size: 14px;}
+    .sub-val {color: #e0e0e0; font-size: 14px; font-weight: 600;}
+    .val-negative {color: #ff5722;}
+    
+    .month-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 20px;
+        padding: 20px 0;
+        border-top: 1px solid #2d2e32;
+    }
+    .month-box {
+        padding: 15px 5px;
+        border-radius: 8px;
+        text-align: center;
+        font-weight: 700;
+        font-size: 13px;
+        border: 1px solid #2d2e32;
+        color: #555;
+    }
+    .month-active-success {background-color: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid #4caf50;}
+    .month-active-danger {background-color: rgba(255, 87, 34, 0.15); color: #ff5722; border: 1px solid #ff5722;}
+    
+    .order-row {
+        display: flex; justify-content: space-between; 
+        padding: 15px 0; border-bottom: 1px solid #2d2e32;
+    }
+    .order-title {font-weight: 600; color: #e0e0e0; font-size: 15px;}
+    .order-sub {color: #777; font-size: 12px; margin-top: 4px;}
+    .order-val {font-weight: 700; font-size: 15px; text-align: right;}
+</style>
+""", unsafe_allow_html=True)
 
-@st.cache_data(ttl=10) # Prevents the app from hitting GitHub API limits
-def load_data():
-    g = Github(GITHUB_TOKEN)
-    repo = g.get_repo(REPO_NAME)
-    try:
-        contents = repo.get_contents(FILE_PATH)
-        df = pd.read_csv(io.StringIO(contents.decoded_content.decode('utf-8')))
-        return df, contents.sha
-    except:
-        # If the CSV doesn't exist yet, return an empty layout
-        return pd.DataFrame(columns=["Date", "Category", "Activity", "Cost", "Joy Score", "ROI"]), None
-
+# --- SESSION STATE (Temporary DB for Demo) ---
 if 'activities' not in st.session_state:
-    df, sha = load_data()
-    st.session_state.activities = df
-    st.session_state.file_sha = sha
+    st.session_state.activities = pd.DataFrame([
+        {"Date": date(2026, 4, 15), "Category": "Lifestyle", "Activity": "Weekend Trip", "Cost": 12000},
+        {"Date": date(2026, 5, 10), "Category": "Lifestyle", "Activity": "Dining Out", "Cost": 4500},
+        {"Date": date(2026, 5, 22), "Category": "Lifestyle", "Activity": "Concert Tickets", "Cost": 8000},
+        {"Date": date(2026, 6, 5), "Category": "Lifestyle", "Activity": "Shopping", "Cost": 16000}, # Over budget month
+        {"Date": date(2026, 7, 18), "Category": "Lifestyle", "Activity": "Gym Yearly", "Cost": 14000},
+        {"Date": date(2026, 8, 2), "Category": "Lifestyle", "Activity": "Groceries (Fancy)", "Cost": 3000},
+    ])
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.title("⚙️ Global Controls")
-st.sidebar.markdown("Define your parameters for the current view.")
+# --- DATE LOGIC ENGINE ---
+TODAY = date(2026, 8, 10) # Locked to your current timeline
 
-# Date Filter
-st.sidebar.subheader("Date Range")
-date_range = st.sidebar.date_input(
-    "Select Period",
-    value=(datetime.today().date() - timedelta(days=30), datetime.today().date()),
-    max_value=datetime.today().date()
-)
+def get_fy_dates(year):
+    return date(year, 4, 1), date(year + 1, 3, 31)
 
-# Income Input
-st.sidebar.subheader("Income Details")
-salary = st.sidebar.number_input("Net Monthly Salary (₹)", min_value=0, value=143000, step=1000)
-
+st.sidebar.title("⚙️ Filters")
+salary = st.sidebar.number_input("Net Monthly Salary (₹)", value=143000, step=1000)
 st.sidebar.markdown("---")
-st.sidebar.caption("Target Framework: Hyper-Aggressive 15 / 70 / 15")
 
-# --- CORE CALCULATIONS ---
-target_survival = salary * 0.15
-target_wealth = salary * 0.70
-target_lifestyle = salary * 0.15
+date_preset = st.sidebar.selectbox("Date Range", [
+    "Current financial year (2026-2027)",
+    "Previous financial year (2025-2026)",
+    "Last quarter",
+    "Last 30 days",
+    "Last trading day",
+    "Custom"
+])
 
-# --- MAIN UI TABS ---
-st.title("🔥 Financial Independence Dashboard")
-tab1, tab2, tab3 = st.tabs(["📊 Capital Allocation", "🎯 Activity ROI", "⚡ Discipline Streaks"])
-
-# ==========================================
-# TAB 1: CAPITAL ALLOCATION DASHBOARD
-# ==========================================
-with tab1:
-    st.markdown("### Monthly Cash Flow Tracking")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        actual_survival = st.number_input("Actual Survival & Debt Spend (₹)", min_value=0.0, value=21450.0, step=1000.0)
-    with col2:
-        actual_wealth = st.number_input("Actual Wealth Deployed (₹)", min_value=0.0, value=100100.0, step=1000.0)
-    with col3:
-        actual_lifestyle = st.number_input("Actual Lifestyle Spend (₹)", min_value=0.0, value=15000.0, step=1000.0)
-
-    st.markdown("---")
-    
-    # Visualizations
-    chart_col1, chart_col2 = st.columns(2)
-    
-    with chart_col1:
-        # Donut Chart for Target vs Actual
-        labels = ['Survival & Debt', 'Wealth Engine', 'Lifestyle']
-        target_vals = [target_survival, target_wealth, target_lifestyle]
-        actual_vals = [actual_survival, actual_wealth, actual_lifestyle]
-        
-        fig_donut = go.Figure()
-        fig_donut.add_trace(go.Pie(labels=labels, values=actual_vals, hole=0.6, marker_colors=['#ff9999','#66b3ff','#99ff99']))
-        fig_donut.update_layout(title_text="Actual Capital Allocation", annotations=[dict(text='Deployed', x=0.5, y=0.5, font_size=20, showarrow=False)])
-        st.plotly_chart(fig_donut, use_container_width=True)
-
-    with chart_col2:
-        # Bar Chart for Targets vs Actuals
-        fig_bar = go.Figure(data=[
-            go.Bar(name='Target (₹)', x=labels, y=target_vals, marker_color='rgba(200, 200, 200, 0.5)'),
-            go.Bar(name='Actual (₹)', x=labels, y=actual_vals, marker_color=['#cf6679', '#4caf50', '#03dac6'])
-        ])
-        fig_bar.update_layout(barmode='group', title_text="Target vs. Actual Burn Rate")
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-
-# ==========================================
-# TAB 2: ACTIVITY-BASED ROI
-# ==========================================
-with tab2:
-    st.markdown("### Log & Measure Discretionary Spending")
-    
-    # Input Form
-    with st.expander("➕ Log a New Activity", expanded=True):
-        f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 1])
-        with f_col1:
-            a_cat = st.selectbox("Category", ["Fitness", "Dining", "Shopping", "Travel", "Hobbies", "Other"])
-        with f_col2:
-            a_name = st.text_input("Activity Name", placeholder="e.g., Badminton")
-        with f_col3:
-            a_cost = st.number_input("Cost (₹)", min_value=0, value=500, step=100)
-        with f_col4:
-            a_joy = st.slider("Joy (1-10)", 1, 10, 7)
-            
-        if st.button("Save Activity", use_container_width=True):
-            # 1. Calculate ROI
-            roi_val = a_cost / a_joy if a_joy > 0 else a_cost
-            
-            # 2. Create the new row
-            new_entry = pd.DataFrame([{
-                "Date": datetime.today().date(),
-                "Category": a_cat,
-                "Activity": a_name,
-                "Cost": a_cost,
-                "Joy Score": a_joy,
-                "ROI": round(roi_val, 2)
-            }])
-            
-            # 3. Update the temporary memory
-            st.session_state.activities = pd.concat([st.session_state.activities, new_entry], ignore_index=True)
-            
-            # 4. Push the permanent update to GitHub
-            g = Github(GITHUB_TOKEN)
-            repo = g.get_repo(REPO_NAME)
-            csv_string = st.session_state.activities.to_csv(index=False)
-            
-            with st.spinner("Writing to database..."):
-                if st.session_state.file_sha:
-                    res = repo.update_file(FILE_PATH, "Appended new activity", csv_string, st.session_state.file_sha)
-                    st.session_state.file_sha = res['commit'].sha
-                else:
-                    res = repo.create_file(FILE_PATH, "Initial CSV creation", csv_string)
-                    st.session_state.file_sha = res['content'].sha
-                
-            st.success("✅ Activity Permanently Saved to GitHub!")
-
-    # Filter Data based on Sidebar Date Range
-    df = st.session_state.activities
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        mask = (pd.to_datetime(df['Date']).dt.date >= start_date) & (pd.to_datetime(df['Date']).dt.date <= end_date)
-        filtered_df = df.loc[mask]
+# Calculate Date Ranges based on Dropdown
+if date_preset == "Current financial year (2026-2027)":
+    start_date, end_date = date(2026, 4, 1), TODAY
+elif date_preset == "Previous financial year (2025-2026)":
+    start_date, end_date = get_fy_dates(2025)
+elif date_preset == "Last quarter":
+    start_date, end_date = date(2026, 4, 1), date(2026, 6, 30) # Q1 FY27
+elif date_preset == "Last 30 days":
+    start_date, end_date = TODAY - timedelta(days=30), TODAY
+elif date_preset == "Last trading day":
+    start_date, end_date = TODAY - timedelta(days=3), TODAY - timedelta(days=3) # Assuming Friday
+else:
+    custom_dates = st.sidebar.date_input("Select Custom Range", [date(2026, 4, 1), TODAY])
+    if len(custom_dates) == 2:
+        start_date, end_date = custom_dates[0], custom_dates[1]
     else:
-        filtered_df = df
+        start_date, end_date = custom_dates[0], custom_dates[0]
 
-    # Analytics View
-    if not filtered_df.empty:
-        st.markdown("#### Cost vs. Satisfaction Matrix")
-        st.caption("Lower on the Y-axis and further right on the X-axis means highly optimal spending.")
-        
-        # Interactive Scatter Plot
-        fig_scatter = px.scatter(
-            filtered_df, x="Joy Score", y="Cost", color="Category", size="Cost", 
-            hover_name="Activity", size_max=40, template="plotly_dark",
-            labels={"Cost": "Rupees Spent (₹)", "Joy Score": "Satisfaction (1-10)"}
-        )
-        fig_scatter.update_layout(xaxis=dict(range=[0, 11]))
-        st.plotly_chart(fig_scatter, use_container_width=True)
-        
-        st.dataframe(filtered_df.sort_values(by="Date", ascending=False), use_container_width=True, hide_index=True)
+# Formatting the date display header
+date_str = f"{start_date.strftime('%d %b \'%y')} - {end_date.strftime('%d %b \'%y')}"
+
+# --- DATA FILTERING ---
+df = st.session_state.activities
+mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
+f_df = df.loc[mask]
+
+# Budget Math
+months_in_range = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
+target_lifestyle_monthly = salary * 0.15
+total_lifestyle_target = target_lifestyle_monthly * months_in_range
+total_lifestyle_spent = f_df['Cost'].sum()
+net_status = total_lifestyle_target - total_lifestyle_spent
+
+# --- MAIN UI ---
+st.markdown(f"<div style='text-align: center; color: #a0a0a0; margin-bottom: 10px;'>🗓️ {date_str}</div>", unsafe_allow_html=True)
+
+# 1. TOP SUMMARY CARD (Groww Style)
+status_color = "#4caf50" if net_status >= 0 else "#ff5722"
+status_sign = "+" if net_status >= 0 else "-"
+
+card_html = f"""
+<div class="metric-card">
+    <div style="font-size: 12px; font-weight: 600; color: #777; letter-spacing: 1px;">NET LIFESTYLE BUDGET (REMAINING)</div>
+    <div class="net-pl" style="color: {status_color};">{status_sign}₹{abs(net_status):,.2f}</div>
+    <div style="margin-top: 20px;">
+        <div class="sub-metric">
+            <span class="sub-text">Total Budgeted (15% Target)</span>
+            <span class="sub-val">₹{total_lifestyle_target:,.2f}</span>
+        </div>
+        <div class="sub-metric">
+            <span class="sub-text">Actual Spent</span>
+            <span class="sub-val val-negative">-₹{total_lifestyle_spent:,.2f}</span>
+        </div>
+    </div>
+"""
+
+# 2. DYNAMIC MONTH GRID
+# Generate exactly 12 months for the FY view (Apr to Mar)
+fy_start_year = start_date.year if start_date.month >= 4 else start_date.year - 1
+grid_months = []
+for i in range(12):
+    m_date = date(fy_start_year, 4, 1) + relativedelta(months=i)
+    grid_months.append(m_date)
+
+grid_html = "<div class='month-grid'>"
+for m in grid_months:
+    m_str = m.strftime("%b'%y").upper()
+    
+    # Check if this month is in our selected range AND has data
+    m_df = df[(df['Date'].dt.month == m.month) & (df['Date'].dt.year == m.year)]
+    
+    if m > TODAY:
+        # Future month
+        grid_html += f"<div class='month-box'>{m_str}</div>"
+    elif m < start_date or m > end_date:
+        # Outside filter range
+        grid_html += f"<div class='month-box'>{m_str}</div>"
+    elif m_df.empty:
+        # No spending logged yet
+        grid_html += f"<div class='month-box month-active-success'>{m_str}</div>"
     else:
-        st.info("No activities logged in the selected date range.")
+        # Evaluate budget
+        spent = m_df['Cost'].sum()
+        if spent > target_lifestyle_monthly:
+            grid_html += f"<div class='month-box month-active-danger'>{m_str}</div>"
+        else:
+            grid_html += f"<div class='month-box month-active-success'>{m_str}</div>"
 
+grid_html += "</div></div>"
+st.markdown(card_html + grid_html, unsafe_allow_html=True)
 
-# ==========================================
-# TAB 3: DISCIPLINE STREAKS
-# ==========================================
-with tab3:
-    st.markdown("### Lifestyle Budget Compliance")
-    st.caption("Keeping your lifestyle spending under 15% triggers a successful month.")
+# 3. QUICK ADD BUTTON
+with st.expander("➕ Log New Expense"):
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1: e_name = st.text_input("Expense Name")
+    with c2: e_cost = st.number_input("Amount (₹)", min_value=0, step=500)
+    with c3: e_date = st.date_input("Date", TODAY)
     
-    # Calculate current status
-    is_successful = actual_lifestyle <= target_lifestyle
-    
-    st.metric(
-        label="Current Month Status", 
-        value="Under Budget" if is_successful else "Over Budget",
-        delta=f"₹{target_lifestyle - actual_lifestyle:,.2f} remaining" if is_successful else f"Exceeded by ₹{actual_lifestyle - target_lifestyle:,.2f}",
-        delta_color="normal"
-    )
-    
-    st.markdown("---")
-    st.markdown("#### Annual Heatmap (Simulated)")
-    
-    # Render a highly visual calendar grid (Simulated data for aesthetics)
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    status = ["success", "success", "danger", "success", "success", "success", "success", "current", "pending", "pending", "pending", "pending"]
-    
-    cols = st.columns(12)
-    for i, col in enumerate(cols):
-        with col:
-            st.markdown(f"<div style='text-align:center; font-weight:bold;'>{months[i]}</div>", unsafe_allow_html=True)
-            if status[i] == "success":
-                st.markdown("<div style='height:40px; background-color:#4caf50; border-radius:8px; margin-top:10px;'></div>", unsafe_allow_html=True)
-            elif status[i] == "danger":
-                st.markdown("<div style='height:40px; background-color:#cf6679; border-radius:8px; margin-top:10px;'></div>", unsafe_allow_html=True)
-            elif status[i] == "current":
-                color = "#4caf50" if is_successful else "#cf6679"
-                st.markdown(f"<div style='height:40px; background-color:{color}; border: 3px solid white; border-radius:8px; margin-top:10px;'></div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div style='height:40px; background-color:#333333; border-radius:8px; margin-top:10px;'></div>", unsafe_allow_html=True)
+    if st.button("Save", use_container_width=True):
+        new_row = pd.DataFrame([{"Date": e_date, "Category": "Lifestyle", "Activity": e_name, "Cost": e_cost}])
+        st.session_state.activities = pd.concat([st.session_state.activities, new_row], ignore_index=True)
+        st.rerun()
+
+# 4. TRANSACTIONS LIST (Groww Style)
+st.markdown("<h3 style='margin-top: 30px; font-size: 18px;'>Recent Activity</h3>", unsafe_allow_html=True)
+
+if f_df.empty:
+    st.caption("No activities found for this period.")
+else:
+    for idx, row in f_df.sort_values(by="Date", ascending=False).iterrows():
+        st.markdown(f"""
+        <div class="order-row">
+            <div>
+                <div class="order-title">{row['Activity']}</div>
+                <div class="order-sub">{row['Date'].strftime('%d %b %Y')} • {row['Category']}</div>
+            </div>
+            <div class="order-val val-negative">-₹{row['Cost']:,.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
