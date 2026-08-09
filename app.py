@@ -96,14 +96,23 @@ if not st.session_state.logged_in:
 # --- DATABASE CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=5) # Cache refreshes every 5 seconds to stay live
+@st.cache_data(ttl=5) 
 def load_data():
     try:
         df = conn.read(worksheet="Transactions", usecols=[0, 1, 2, 3, 4])
-        df = df.dropna(how="all") # Clean empty rows
+        df = df.dropna(how="all") 
+        
+        # Bulletproof Fix 1: Strip accidental spaces from Google Sheet headers
+        if not df.empty:
+            df.columns = df.columns.astype(str).str.strip()
+            
+        # Bulletproof Fix 2: If the sheet is completely blank or missing headers, force the correct structure
+        if df.empty or 'User' not in df.columns:
+            return pd.DataFrame(columns=["User", "Month", "Category", "SubCategory", "Amount"])
+            
         return df
     except Exception as e:
-        st.error("Database connection failed. Ensure Google Sheets is configured.")
+        st.error(f"Database connection failed. Exact error: {e}") 
         return pd.DataFrame(columns=["User", "Month", "Category", "SubCategory", "Amount"])
 
 df_master = load_data()
