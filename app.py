@@ -11,8 +11,6 @@ st.set_page_config(page_title="FIRE Tracker | 15-70-15", page_icon="⚡", layout
 # --- CUSTOM CSS (Fintech Aesthetic) ---
 st.markdown("""
 <style>
-    /* Main Background & Text */
-    .stApp { background-color: #0E1117; color: #E0E0E0; }
     
     /* Custom Metric Cards */
     .kpi-container {
