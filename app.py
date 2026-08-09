@@ -107,8 +107,10 @@ else:
 date_str = f"{start_date.strftime('%d %b \'%y')} - {end_date.strftime('%d %b \'%y')}"
 
 # --- DATA FILTERING ---
-df = st.session_state.activities
-mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
+df = st.session_state.activities.copy()
+df['Date'] = pd.to_datetime(df['Date']) # Converts to native Pandas datetime
+
+mask = (df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)
 f_df = df.loc[mask]
 
 # Budget Math
