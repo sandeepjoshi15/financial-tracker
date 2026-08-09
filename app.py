@@ -8,6 +8,37 @@ from streamlit_gsheets import GSheetsConnection
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="FIRE Tracker | 15-70-15", page_icon="⚡", layout="wide")
 
+# --- CUSTOM CSS (Fintech Aesthetic) ---
+st.markdown("""
+<style>
+    /* Custom Metric Cards */
+    .kpi-container {
+        display: flex; gap: 15px; margin-bottom: 25px; flex-wrap: wrap;
+    }
+    .kpi-card {
+        background: linear-gradient(145deg, #1A1C23 0%, #121418 100%);
+        border: 1px solid #2A2D35;
+        border-radius: 12px;
+        padding: 20px;
+        flex: 1;
+        min-width: 200px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        transition: transform 0.2s ease;
+    }
+    .kpi-card:hover { transform: translateY(-3px); border-color: #4CAF50; }
+    .kpi-title { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;}
+    .kpi-value { font-size: 28px; font-weight: 700; color: #FFF; margin-bottom: 5px;}
+    .kpi-sub { font-size: 13px; font-weight: 600; }
+    .text-green { color: #00E676; }
+    .text-red { color: #FF3D00; }
+    .text-blue { color: #00B0FF; }
+    
+    /* Headers & Dividers */
+    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 700 !important; }
+    hr { border-color: #2A2D35; }
+</style>
+""", unsafe_allow_html=True)
+
 # --- SECURITY & PERSISTENCE PROTOCOL ---
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -31,8 +62,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- AUTHENTICATION WALL ---
 if not st.session_state.logged_in:
-    st.markdown("<br><br><h1 style='text-align: center;'>⚡ FIRE Dashboard</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: gray;'>Secure access to your institutional-grade financial tracker.</p><br>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align: center; color: #FFF;'>⚡ FIRE Dashboard</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888;'>Secure access to your institutional-grade financial tracker.</p><br>", unsafe_allow_html=True)
     
     try:
         df_users = conn.read(worksheet="Users", usecols=[0, 1])
@@ -111,7 +142,7 @@ df_user['ParsedDate'] = pd.to_datetime(df_user['Month'], errors='coerce')
 col_head1, col_head2 = st.columns([5, 1])
 col_head1.markdown(f"<h2>⚡ Welcome, {st.session_state.user.capitalize()}</h2>", unsafe_allow_html=True)
 with col_head2:
-    st.write("") 
+    st.write("") # Padding
     if st.button("🚪 Secure Logout", use_container_width=True):
         st.query_params.clear()
         st.session_state.logged_in = False
@@ -120,9 +151,18 @@ with col_head2:
 
 st.markdown("---")
 
-# --- NAVIGATION & FILTER HORIZON ---
-st.markdown("### Select Reporting Period")
-view_mode = st.radio("Analytics Horizon", ["Monthly View", "Current Financial Year (2026-2027)", "Previous Financial Year (2025-2026)", "Last Quarter", "Last Month", "Custom"], horizontal=True)
+# --- NAVIGATION: ANALYTICS HORIZON (Default to Current Financial Year) ---
+st.markdown("### Select Analytics Horizon")
+view_mode = st.radio("Analytics Horizon", [
+    "Current Financial Year (2026-2027)", 
+    "Previous Financial Year (2025-2026)", 
+    "Last Quarter", 
+    "Last Month", 
+    "Monthly View", 
+    "Custom"
+], horizontal=True, index=0)
+
+today = date.today()
 
 if view_mode == "Monthly View":
     if 'active_month' not in st.session_state:
@@ -137,7 +177,7 @@ if view_mode == "Monthly View":
         options.append((m_key, f"● {m_label}" if has_data else m_label))
 
     selected_option = st.radio(
-        "Select Month",
+        "Select Reporting Period",
         options=[opt[1] for opt in options],
         index=[opt[0] for opt in options].index(st.session_state.active_month) if st.session_state.active_month in [opt[0] for opt in options] else 0,
         horizontal=True,
@@ -160,13 +200,13 @@ elif view_mode == "Previous Financial Year (2025-2026)":
     period_title = "Previous Financial Year (2025-2026)"
 
 elif view_mode == "Last Quarter":
-    end_date = pd.to_datetime(date.today())
+    end_date = pd.to_datetime(today)
     start_date = end_date - pd.DateOffset(months=3)
     m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
     period_title = "Last Quarter"
 
 elif view_mode == "Last Month":
-    end_date = pd.to_datetime(date.today())
+    end_date = pd.to_datetime(today)
     start_date = end_date - pd.DateOffset(months=1)
     m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
     period_title = "Last Month"
@@ -174,13 +214,11 @@ elif view_mode == "Last Month":
 else: # Custom
     c_start, c_end = st.columns(2)
     custom_start = c_start.date_input("Start Date", value=date(2026, 4, 1))
-    custom_end = c_end.date_input("End Date", value=date.today())
+    custom_end = c_end.date_input("End Date", value=today)
     start_date = pd.to_datetime(custom_start)
     end_date = pd.to_datetime(custom_end)
     m_df = df_user[(df_user['ParsedDate'] >= start_date) & (df_user['ParsedDate'] <= end_date)]
     period_title = f"{custom_start.strftime('%d %b %Y')} to {custom_end.strftime('%d %b %Y')}"
-
-st.markdown("---")
 
 # --- CALCULATION ENGINE ---
 income = m_df[m_df['Category'] == 'Income']['Amount'].sum()
@@ -192,23 +230,54 @@ target_survival = income * 0.15
 target_wealth = income * 0.70
 target_lifestyle = income * 0.15
 
-# --- KPI CARDS ---
-st.markdown(f"### Performance Summary: {period_title}")
+# --- KPI CARDS (Custom HTML) ---
+st.markdown("<br>", unsafe_allow_html=True)
 if income == 0:
-    st.warning("⚠️ No 'Income' logged for this period. Targets cannot be calculated.")
+    st.warning(f"⚠️ No 'Income' logged for {period_title}. Targets cannot be calculated.")
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.metric("Total Cash Inflow", f"₹{income:,.0f}", f"Deployed: ₹{survival+wealth+lifestyle:,.0f}")
+# Income Card
+c1.markdown(f"""
+<div class="kpi-card" style="border-top: 3px solid #00B0FF;">
+    <div class="kpi-title">Total Cash Inflow</div>
+    <div class="kpi-value">₹{income:,.0f}</div>
+    <div class="kpi-sub text-blue">Deployed: ₹{survival+wealth+lifestyle:,.0f}</div>
+</div>
+""", unsafe_allow_html=True)
 
+# Survival Card
 s_diff = target_survival - survival
-c2.metric("Survival (15% Cap)", f"₹{survival:,.0f}", f"{'+' if s_diff >= 0 else ''}₹{s_diff:,.0f} vs Target", delta_color="normal" if s_diff >= 0 else "inverse")
+s_color = "text-green" if s_diff >= 0 else "text-red"
+c2.markdown(f"""
+<div class="kpi-card" style="border-top: 3px solid {'#00E676' if s_diff >= 0 else '#FF3D00'};">
+    <div class="kpi-title">Survival (15% Cap)</div>
+    <div class="kpi-value">₹{survival:,.0f}</div>
+    <div class="kpi-sub {s_color}">Target: ₹{target_survival:,.0f} ({'+' if s_diff >= 0 else ''}₹{s_diff:,.0f})</div>
+</div>
+""", unsafe_allow_html=True)
 
+# Wealth Card
 w_diff = wealth - target_wealth
-c3.metric("Wealth (70% Floor)", f"₹{wealth:,.0f}", f"{'+' if w_diff >= 0 else ''}₹{w_diff:,.0f} vs Target", delta_color="normal" if w_diff >= 0 else "inverse")
+w_color = "text-green" if w_diff >= 0 else "text-red"
+c3.markdown(f"""
+<div class="kpi-card" style="border-top: 3px solid {'#00E676' if w_diff >= 0 else '#FF3D00'};">
+    <div class="kpi-title">Wealth (70% Floor)</div>
+    <div class="kpi-value">₹{wealth:,.0f}</div>
+    <div class="kpi-sub {w_color}">Target: ₹{target_wealth:,.0f} ({'+' if w_diff >= 0 else ''}₹{w_diff:,.0f})</div>
+</div>
+""", unsafe_allow_html=True)
 
+# Lifestyle Card
 l_diff = target_lifestyle - lifestyle
-c4.metric("Lifestyle (15% Cap)", f"₹{lifestyle:,.0f}", f"{'+' if l_diff >= 0 else ''}₹{l_diff:,.0f} vs Target", delta_color="normal" if l_diff >= 0 else "inverse")
+l_color = "text-green" if l_diff >= 0 else "text-red"
+c4.markdown(f"""
+<div class="kpi-card" style="border-top: 3px solid {'#00E676' if l_diff >= 0 else '#FF3D00'};">
+    <div class="kpi-title">Lifestyle (15% Cap)</div>
+    <div class="kpi-value">₹{lifestyle:,.0f}</div>
+    <div class="kpi-sub {l_color}">Target: ₹{target_lifestyle:,.0f} ({'+' if l_diff >= 0 else ''}₹{l_diff:,.0f})</div>
+</div>
+""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -217,7 +286,7 @@ col_charts, col_input = st.columns([2.5, 1.5])
 
 with col_charts:
     with st.container(border=True):
-        st.markdown("#### 📊 Capital Allocation")
+        st.markdown(f"#### 📊 Capital Allocation ({period_title})")
         if income > 0 and (survival > 0 or wealth > 0 or lifestyle > 0):
             labels = ['Survival & Debt', 'Wealth Engine', 'Lifestyle']
             values = [survival, wealth, lifestyle]
@@ -238,11 +307,12 @@ with col_charts:
 
 with col_input:
     with st.container(border=True):
-        st.markdown("#### 📝 Log Transaction")
+        st.markdown("#### 📝 Log Transaction (Data Entry)")
         with st.form("entry_form"):
-            default_month = st.session_state.active_month if view_mode == "Monthly View" else datetime.today().strftime("%Y-%m")
+            # Independent Data Logging (Defaults to current active month or current system month)
+            default_log_month = st.session_state.active_month if (view_mode == "Monthly View" and 'active_month' in st.session_state) else datetime.today().strftime("%Y-%m")
             
-            log_month = st.text_input("Target Month (YYYY-MM)", value=default_month)
+            log_month = st.text_input("Target Month (YYYY-MM)", value=default_log_month, help="Specify which month this transaction belongs to.")
             cat = st.selectbox("Category", ["Income", "Survival & Debt", "Wealth Engine", "Lifestyle"])
             sub_cat = st.text_input("Sub-Category / Description", placeholder="e.g., Salary, Rent, Groww SIP")
             amt = st.number_input("Amount (₹)", min_value=0.0, step=500.0)
@@ -264,7 +334,7 @@ with col_input:
                     st.error("Description and Amount required.")
 
 # --- DATAFRAME LEDGER ---
-st.markdown("#### 📓 Categorized Ledger")
+st.markdown(f"#### 📓 Categorized Ledger ({period_title})")
 if not m_df.empty:
     breakdown = m_df.groupby(['Category', 'SubCategory'])['Amount'].sum().reset_index()
     st.dataframe(
