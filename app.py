@@ -200,7 +200,37 @@ breakdown_data = [
         "Target (₹)": salary * 0.01,
     },
 ]
+st.markdown("---")
+st.subheader("🔥 Financial Discipline Streak")
+st.caption("Keep your lifestyle spending under the 15% cap to build your streak.")
 
+# Simulating historical monthly data for the visual
+# True = Kept lifestyle under 15% cap, False = Breached budget
+historical_months = [True, True, False, True, True, True] 
+
+# Evaluate the current month based on your live inputs
+current_month_success = actual_lifestyle <= target_lifestyle
+all_months = historical_months + [current_month_success]
+
+# Render the visual streak
+streak_html = "<div style='display: flex; gap: 10px; font-size: 24px;'>"
+for success in all_months:
+    if success:
+        streak_html += "<span style='color: #4caf50;'>🟢</span>"
+    else:
+        streak_html += "<span style='color: #cf6679;'>🔴</span>"
+streak_html += "</div>"
+
+st.markdown(streak_html, unsafe_allow_html=True)
+
+current_streak = 0
+for success in reversed(all_months):
+    if success:
+        current_streak += 1
+    else:
+        break
+
+st.write(f"**Current Streak:** {current_streak} Months 🔥")
 df = pd.DataFrame(breakdown_data)
 df["Target (₹)"] = df["Target (₹)"].map("₹{:,.2f}".format)
 
