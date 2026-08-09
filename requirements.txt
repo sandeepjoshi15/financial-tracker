@@ -3,3 +3,4 @@ pandas
 plotly
 PyGithub
 st-gsheets-connection
+streamlit-cookies-controller
