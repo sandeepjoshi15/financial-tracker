@@ -27,29 +27,36 @@ def hash_password(password):
 # --- DATABASE CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- AUTHENTICATION WALL ---
+from streamlit_cookies_controller import CookieController
+import hashlib
+
+# Initialize Cookie Controller
+controller = CookieController()
+
+# --- SECURITY PROTOCOL ---
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# Check cookies first before checking temporary session state
+cookie_status = controller.get('logged_in')
+cookie_user = controller.get('username')
+
 if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user = ""
+    st.session_state.logged_in = cookie_status if cookie_status else False
+    st.session_state.user = cookie_user if cookie_user else ""
 
 if not st.session_state.logged_in:
     st.title("🔒 Access Your Dashboard")
     
-    # Load user database
     try:
         df_users = conn.read(worksheet="Users", usecols=[0, 1])
         df_users = df_users.dropna(how="all")
-        
-        # Bulletproof Fix 1: Strip accidental spaces from Google Sheet headers
         if not df_users.empty:
-            df_users.columns = df_users.columns.str.strip()
-            
-        # Bulletproof Fix 2: If the sheet is completely blank, force the correct structure
+            df_users.columns = df_users.columns.astype(str).str.strip()
         if df_users.empty or 'Username' not in df_users.columns:
             df_users = pd.DataFrame(columns=["Username", "Password"])
-            
     except Exception as e:
-        st.error("Error connecting to Users database. Please ensure the 'Users' tab exists in your Google Sheet.")
+        st.error(f"Database connection failed. Exact error: {e}")
         st.stop()
         
     tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
@@ -62,8 +69,11 @@ if not st.session_state.logged_in:
                 if log_user in df_users['Username'].values:
                     stored_hash = df_users.loc[df_users['Username'] == log_user, 'Password'].values[0]
                     if stored_hash == hash_password(log_pin):
+                        # Save to both Session State AND Browser Cookies
                         st.session_state.logged_in = True
                         st.session_state.user = log_user
+                        controller.set('logged_in', True)
+                        controller.set('username', log_user)
                         st.rerun()
                     else:
                         st.error("Incorrect PIN.")
