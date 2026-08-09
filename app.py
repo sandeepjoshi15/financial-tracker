@@ -39,6 +39,15 @@ if not st.session_state.logged_in:
     try:
         df_users = conn.read(worksheet="Users", usecols=[0, 1])
         df_users = df_users.dropna(how="all")
+        
+        # Bulletproof Fix 1: Strip accidental spaces from Google Sheet headers
+        if not df_users.empty:
+            df_users.columns = df_users.columns.str.strip()
+            
+        # Bulletproof Fix 2: If the sheet is completely blank, force the correct structure
+        if df_users.empty or 'Username' not in df_users.columns:
+            df_users = pd.DataFrame(columns=["Username", "Password"])
+            
     except Exception as e:
         st.error("Error connecting to Users database. Please ensure the 'Users' tab exists in your Google Sheet.")
         st.stop()
