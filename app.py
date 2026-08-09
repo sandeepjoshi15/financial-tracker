@@ -17,7 +17,7 @@ st.set_page_config(
 # --- SESSION STATE (Local Database Simulation) ---
 # --- DATABASE SETUP (GitHub CSV Integration) ---
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO_NAME = "YOUR_USERNAME/financial-tracker" # ⚠️ CHANGE THIS TO YOUR ACTUAL REPO NAME
+REPO_NAME = "sandeepjoshi15/financial-tracker"
 FILE_PATH = "data.csv"
 
 @st.cache_data(ttl=10) # Prevents the app from hitting GitHub API limits
