@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import io
+from github import Github
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -13,12 +15,27 @@ st.set_page_config(
 )
 
 # --- SESSION STATE (Local Database Simulation) ---
+# --- DATABASE SETUP (GitHub CSV Integration) ---
+GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+REPO_NAME = "YOUR_USERNAME/financial-tracker" # ⚠️ CHANGE THIS TO YOUR ACTUAL REPO NAME
+FILE_PATH = "data.csv"
+
+@st.cache_data(ttl=10) # Prevents the app from hitting GitHub API limits
+def load_data():
+    g = Github(GITHUB_TOKEN)
+    repo = g.get_repo(REPO_NAME)
+    try:
+        contents = repo.get_contents(FILE_PATH)
+        df = pd.read_csv(io.StringIO(contents.decoded_content.decode('utf-8')))
+        return df, contents.sha
+    except:
+        # If the CSV doesn't exist yet, return an empty layout
+        return pd.DataFrame(columns=["Date", "Category", "Activity", "Cost", "Joy Score", "ROI"]), None
+
 if 'activities' not in st.session_state:
-    # Pre-populate with some sample data for demonstration
-    st.session_state.activities = pd.DataFrame([
-        {"Date": datetime.today().date() - timedelta(days=2), "Category": "Fitness", "Activity": "Badminton Booking", "Cost": 800, "Joy Score": 8, "ROI": 100},
-        {"Date": datetime.today().date() - timedelta(days=5), "Category": "Dining", "Activity": "Weekend Dinner", "Cost": 3500, "Joy Score": 5, "ROI": 700}
-    ])
+    df, sha = load_data()
+    st.session_state.activities = df
+    st.session_state.file_sha = sha
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.title("⚙️ Global Controls")
@@ -107,7 +124,10 @@ with tab2:
             a_joy = st.slider("Joy (1-10)", 1, 10, 7)
             
         if st.button("Save Activity", use_container_width=True):
+            # 1. Calculate ROI
             roi_val = a_cost / a_joy if a_joy > 0 else a_cost
+            
+            # 2. Create the new row
             new_entry = pd.DataFrame([{
                 "Date": datetime.today().date(),
                 "Category": a_cat,
@@ -116,8 +136,24 @@ with tab2:
                 "Joy Score": a_joy,
                 "ROI": round(roi_val, 2)
             }])
+            
+            # 3. Update the temporary memory
             st.session_state.activities = pd.concat([st.session_state.activities, new_entry], ignore_index=True)
-            st.success("Activity Logged!")
+            
+            # 4. Push the permanent update to GitHub
+            g = Github(GITHUB_TOKEN)
+            repo = g.get_repo(REPO_NAME)
+            csv_string = st.session_state.activities.to_csv(index=False)
+            
+            with st.spinner("Writing to database..."):
+                if st.session_state.file_sha:
+                    res = repo.update_file(FILE_PATH, "Appended new activity", csv_string, st.session_state.file_sha)
+                    st.session_state.file_sha = res['commit'].sha
+                else:
+                    res = repo.create_file(FILE_PATH, "Initial CSV creation", csv_string)
+                    st.session_state.file_sha = res['content'].sha
+                
+            st.success("✅ Activity Permanently Saved to GitHub!")
 
     # Filter Data based on Sidebar Date Range
     df = st.session_state.activities
